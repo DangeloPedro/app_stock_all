@@ -1,0 +1,131 @@
+@import "tailwindcss";
+
+/* ============================================================
+   IDENTIDADE VISUAL — "Stall + Harbor + Crisp"
+   (escolhida na Vitrine de Estilos, 23/08/2026)
+
+   A estratégia aqui é redefinir os TOKENS do Tailwind em vez de
+   trocar classe por classe nos componentes: o app já usa
+   slate/blue/emerald/amber/red de forma consistente e semântica,
+   então basta remapear o que cada nome significa. Nenhum
+   componente precisou saber que a paleta mudou.
+
+   O que cada família de cor significa neste app:
+     slate   → neutros (fundo, texto, linhas, botões escuros)
+     blue    → DESTAQUE / navegação / links / barras de gráfico
+     emerald → "em casa" / compra confirmada
+     amber   → "a comprar" / acabou
+     red     → erro
+
+   Harbor usa teal petróleo como destaque justamente para não
+   ocupar o slot de nenhum dos três significados acima — verde,
+   âmbar e vermelho continuam querendo dizer só o que já diziam.
+   ============================================================ */
+
+@theme {
+  /* ---------- tipografia (Stall) ---------- */
+  /* As duas faces são carregadas por next/font em layout.tsx, que
+     expõe --font-display-face / --font-body-face no <html>. */
+  --font-sans: var(--font-body-face), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-display-face), ui-sans-serif, system-ui, sans-serif;
+
+  /* ---------- forma (Crisp) ---------- */
+  /* Cantos quase retos: cabe mais item na tela e as colunas de
+     número alinham melhor. --radius-full fica intocado de
+     propósito — as barras do histórico continuam com ponta
+     arredondada, que é o certo para barra de progresso. */
+  --radius-xs: 2px;
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 3px;
+  --radius-xl: 4px;
+  --radius-2xl: 5px;
+
+  /* ---------- neutros (Harbor: cinza com viés de teal) ---------- */
+  --color-slate-50: #f5f8f8;
+  --color-slate-100: #eaf0f0;
+  --color-slate-200: #dbe6e7;
+  --color-slate-300: #c3d3d5;
+  --color-slate-400: #85999e;
+  --color-slate-500: #55727a;
+  --color-slate-600: #456068;
+  --color-slate-700: #344c53;
+  --color-slate-800: #22383e;
+  --color-slate-900: #10262a;
+  --color-slate-950: #0a1a1d;
+
+  /* ---------- destaque: teal petróleo ---------- */
+  --color-blue-50: #e1f0f1;
+  --color-blue-100: #cee5e7;
+  --color-blue-200: #b9d9dc;
+  --color-blue-300: #8dc0c5;
+  --color-blue-400: #4f9ba3;
+  --color-blue-500: #177985;
+  --color-blue-600: #146973;
+  --color-blue-700: #0f5a63;
+  --color-blue-800: #0b4b53;
+  --color-blue-900: #093c43;
+
+  /* ---------- "em casa" / confirmado ---------- */
+  --color-emerald-50: #e3f2e9;
+  --color-emerald-100: #d2e9db;
+  --color-emerald-200: #b4d9c2;
+  --color-emerald-300: #92c4a6;
+  --color-emerald-400: #5da37c;
+  --color-emerald-500: #3a8c5d;
+  --color-emerald-600: #2e7d4f;
+  --color-emerald-700: #266840;
+  --color-emerald-800: #1e5433;
+  --color-emerald-900: #184429;
+
+  /* ---------- "a comprar" / acabou ---------- */
+  --color-amber-50: #faeedb;
+  --color-amber-100: #f6e2c2;
+  --color-amber-200: #efd09b;
+  --color-amber-300: #e0b268;
+  --color-amber-400: #c98c2b;
+  --color-amber-500: #b87400;
+  --color-amber-600: #a96400;
+  --color-amber-700: #8d5300;
+  --color-amber-800: #714300;
+  --color-amber-900: #5c3600;
+
+  /* ---------- erro ---------- */
+  --color-red-50: #fbe9e7;
+  --color-red-100: #f7d6d3;
+  --color-red-200: #f0bcb7;
+  --color-red-300: #e8a9a3;
+  --color-red-400: #d4635a;
+  --color-red-500: #c23a30;
+  --color-red-600: #b3261e;
+  --color-red-700: #971f19;
+  --color-red-800: #7b1913;
+  --color-red-900: #64140f;
+}
+
+:root {
+  --background: #f5f8f8;
+  --foreground: #10262a;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+/* Bricolage Grotesque só nos títulos de página — personalidade
+   onde ajuda a orientar, sem atrapalhar a leitura de lista. Os
+   rótulos de seção (uppercase, 12px) ficam em Public Sans, que
+   aguenta melhor corpo pequeno. */
+h1 {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+/* Números de dinheiro e quantidade alinham em coluna no app
+   inteiro — tabular-nums já é aplicado por classe onde importa,
+   isto aqui garante o mesmo nos campos de digitação. */
+input[type="number"] {
+  font-variant-numeric: tabular-nums;
+}

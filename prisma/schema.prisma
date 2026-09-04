@@ -1,0 +1,228 @@
+// Esquema de dados da Fase 1 — ver README.md ("Modelo de dados") e
+// docs/revisao-modelo-dados.md para o raciocínio por trás de cada campo.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum StatusProduto {
+  catalogado // no mercado — conhecido, não está em casa nem na lista
+  na_lista // selecionado para a próxima compra
+  em_casa // em estoque
+}
+
+enum Moeda {
+  BRL
+  USD
+  EUR
+  GBP
+}
+
+/// Configuração global do app — singleton (sempre um único registro, id
+/// fixo "singleton", lido/gravado via upsert). Hoje só guarda a moeda usada
+/// pra EXIBIR preços em toda a UI; não converte valores nem afeta o que já
+/// tá salvo (preços continuam números puros no banco, sempre foram — só a
+/// formatação/símbolo muda quando o usuário troca a moeda em /configuracoes).
+model Configuracao {
+  id    String @id @default("singleton")
+  moeda Moeda  @default(BRL)
+}
+
+/// Catálogo de produto — dados relativamente estáveis. Cada Produto é uma
+/// variante concreta (ex. "Actimel pacote com 6"), não um conceito genérico.
+model Produto {
+  id String @id @default(cuid())
+
+  nome String
+
+  /// Rótulo curto e reutilizável usado SÓ para agrupar variantes na lista de
+  /// compras (ex. "Iogurte", "Azeite"). Preenchido via autocomplete sobre
+  /// valores já existentes — nunca digitado 100% livre na UI, para não
+  /// fragmentar famílias (ver docs/revisao-modelo-dados.md, achado 2.2).
+  productFamily String
+
+  /// Estado tripartite, mutuamente exclusivo. Alterado só como efeito
+  /// colateral de ações da UI (marcar como comprado → em_casa; adicionar à
+  /// lista → na_lista) — nunca um campo editado livremente.
+  status StatusProduto @default(catalogado)
+
+  /// Onde fica em casa (fridge/freezer/laundry/etc.) — editável em /locais.
+  /// Só relevante quando status = em_casa.
+  localizacaoId String?
+  localizacao   Localizacao? @relation(fields: [localizacaoId], references: [id])
+
+  /// g/kg/ml/L/un — junto com conteudoEmbalagem, permite calcular preço por
+  /// unidade (ex. preço/g) pra cada mercado, exibido em "prices by store".
+  /// Sem os dois preenchidos, o preço por unidade simplesmente não aparece
+  /// (nenhum cálculo é feito com dado incompleto).
+  unidadeDeMedida String?
+
+  /// Quantidade de unidadeDeMedida que a embalagem contém (ex. 450 se
+  /// unidadeDeMedida = "g"). Preço por unidade = preço da loja ÷ este valor
+  /// — por isso os dois campos vivem e são preenchidos juntos.
+  conteudoEmbalagem Float?
+
+  /// Só um valor de pré-preenchimento ao montar a lista — NUNCA usado no
+  /// cálculo de gasto (isso vem sempre do EventoDeCompra).
+  quantidadePadrao Float?
+
+  /// Quantas unidades tem em casa agora. Incrementada automaticamente por
+  /// quantidadeComprada quando um EventoDeCompra é registrado; editável à
+  /// mão pra corrigir depois de consumir. Não é a fonte de verdade de gasto
+  /// (isso é sempre o EventoDeCompra) — é só "quanto ainda tenho".
+  quantidadeEmEstoque Float @default(0)
+
+  /// Onde o usuário pretende comprar este item (aba to-buy > Editável) —
+  /// dica/planejamento, não fonte de verdade de preço (isso é sempre
+  /// EventoDeCompra) nem obrigatório (usado só pra montar a visão de
+  /// planejamento e o preview de gasto por mercado).
+  lojaPreferidaId String?
+  lojaPreferida   Loja?   @relation("ProdutoLojaPreferida", fields: [lojaPreferidaId], references: [id])
+
+  /// "Já peguei no carrinho" — marcado durante uma compra em andamento na
+  /// aba to-buy. Só faz sentido enquanto status = na_lista; persistido (não
+  /// é estado só de tela) pra sobreviver a reload no meio das compras no
+  /// mercado. Resetado pra false em toda transição PRA FORA de na_lista
+  /// (confirmar compra → em_casa; desistir → catalogado) e ao ENTRAR em
+  /// na_lista (evita reaparecer pré-marcado numa lista futura por acidente).
+  pegoNoMercado Boolean @default(false)
+
+  /// Soft-delete/arquivamento — não perder integridade do histórico ao
+  /// descontinuar um produto.
+  ativo Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  eventos          EventoDeCompra[]
+  precosReferencia PrecoReferencia[]
+
+  @@index([status])
+  @@index([productFamily])
+  @@index([localizacaoId])
+  @@index([lojaPreferidaId])
+}
+
+/// Trava a unidade de medida (g/kg/ml/L/un) de UMA família inteira —
+/// decidida pelo primeiro produto cadastrado nela, daí em diante todo
+/// produto novo/editado dessa família é forçado pro mesmo valor (ver POST e
+/// PATCH /api/produtos). Só muda via PUT /api/produtos/familias/unidade
+/// (usado em /configuracoes/familias), que também propaga pra todo produto
+/// já cadastrado na família.
+///
+/// productFamily continua texto livre em Produto (não uma entidade própria —
+/// ver docs/revisao-modelo-dados.md); esta tabela é só um mapa nome→unidade
+/// à parte, com o nome da família como chave. Existe pra impedir
+/// fragmentação de unidade dentro de uma família (ex. metade em "g", metade
+/// em "ml"), que quebraria a comparação por preço/unidade em /compare.
+model FamiliaUnidade {
+  /// Mesmo texto usado em Produto.productFamily.
+  nome String @id
+
+  unidadeDeMedida String
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+/// Onde um produto fica guardado em casa (fridge, freezer, laundry, bottom
+/// shelf, under the sink, rack, etc.). Editável pelo usuário (tela /locais)
+/// pelo mesmo motivo de Loja: casa nova, organização nova, não deve exigir
+/// mexer em código. Desativação é soft-delete, mesmo raciocínio de Loja.
+model Localizacao {
+  id String @id @default(cuid())
+
+  nome String @unique
+
+  ativo Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  produtos Produto[]
+}
+
+/// Mercado onde se compra. Editável pelo usuário (tela /lojas) — adicionar um
+/// mercado novo ou parar de frequentar um não deve exigir mexer em código.
+/// Desativação é soft-delete (ativo=false): nunca apaga de verdade, porque
+/// EventoDeCompra históricos continuam apontando pra cá.
+model Loja {
+  id String @id @default(cuid())
+
+  nome String @unique
+
+  /// false = "parei de ir nesse mercado" — some das opções de seleção pra
+  /// compra nova, mas o histórico de eventos passados continua intacto.
+  ativo Boolean @default(true)
+
+  createdAt DateTime @default(now())
+
+  eventos            EventoDeCompra[]
+  precosReferencia   PrecoReferencia[]
+  produtosPreferindo Produto[]         @relation("ProdutoLojaPreferida")
+}
+
+/// Preço de referência/planejamento por produto × loja — DIFERENTE do preço
+/// real pago (EventoDeCompra.precoPago). Existe pra responder "em qual
+/// mercado é mais barato ir?" ANTES de comprar, então precisa ser editável a
+/// qualquer momento (não só derivado de compra). Fica sincronizado
+/// automaticamente com o preço pago sempre que uma compra é fechada (ver
+/// /api/eventos), mas o usuário pode ajustar à mão a qualquer momento — ex.
+/// viu o preço na prateleira/site sem ter comprado ainda.
+model PrecoReferencia {
+  id String @id @default(cuid())
+
+  produtoId String
+  produto   Produto @relation(fields: [produtoId], references: [id])
+
+  lojaId String
+  loja   Loja   @relation(fields: [lojaId], references: [id])
+
+  preco Float
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([produtoId, lojaId])
+}
+
+/// Evento de compra (transação) — um registro por item comprado em cada
+/// compra. "Preço atual por loja" NUNCA é um campo editável à parte: é
+/// sempre derivado do último EventoDeCompra daquele produto naquela loja.
+model EventoDeCompra {
+  id String @id @default(cuid())
+
+  produtoId String
+  produto   Produto @relation(fields: [produtoId], references: [id])
+
+  data DateTime @default(now())
+
+  lojaId String
+  loja   Loja   @relation(fields: [lojaId], references: [id])
+
+  /// Preço real pago naquele evento.
+  precoPago Float
+
+  /// Necessária para gasto total e preço por unidade; independente da
+  /// quantidadePadrao do catálogo.
+  quantidadeComprada Float
+
+  /// Agrupa os itens confirmados numa mesma ação de "confirm purchase"
+  /// (to-buy, scan de nota, grabbed & eaten) — um UUID gerado no client e
+  /// repetido em cada evento daquela confirmação. É o que separa duas
+  /// idas à mesma loja no mesmo dia em /historico. Nulo em eventos criados
+  /// antes desse campo existir; esses caem no fallback dia+loja (ver
+  /// agrupamento em historico/page.tsx).
+  grupoCompraId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([produtoId])
+  @@index([data])
+  @@index([lojaId])
+  @@index([grupoCompraId])
+}
